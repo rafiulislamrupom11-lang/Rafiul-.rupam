@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Rafiul Rupam | Motion Designer & Video Editor</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,600;14..32,700;14..32,800;14..32,900&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- GSAP & ScrollTrigger -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, orderBy, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+
+        // ===== REPLACE WITH YOUR FIREBASE CONFIG =====
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        // ============================================
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+
+        // Admin password (hardcoded – change it)
+        const ADMIN_PASSWORD = "rafiul123";
+
+        // Helper functions
+        async function loadPortfolioItems() {
+            const q = query(collection(db, "portfolio"), orderBy("timestamp", "desc"));
+            const snapshot = await getDocs(q);
+            const items = [];
+            snapshot.forEach(doc => {
+                items.push({ id: doc.id, ...doc.data() });
+            });
+            return items;
+        }
+
+        async function addPortfolioItem(file, title, category) {
+            if (!file) throw new Error("No file selected");
+            const type = file.type.startsWith("video/") ? "video" : (file.type.startsWith("image/") ? "image" : null);
+            if (!type) throw new Error("Only images or videos are supported");
+            if (file.size > 12 * 1024 * 1024) throw new Error("File size must be < 12MB");
+
+            // Upload file to Firebase Storage
+            const storageRef = ref(storage, `portfolio/${Date.now()}_${file.name}`);
+            await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(storageRef);
+
+            // Save metadata to Firestore
+            await addDoc(collection(db, "portfolio"), {
+                type: type,
+                src: downloadURL,
+                title: title.trim() || "Untitled Work",
+                category: category,
+                timestamp: Date.now()
+            });
+        }
+
+        async function deletePortfolioItem(itemId, fileUrl) {
+            // Delete from Storage
+            const storageRef = ref(storage, fileUrl);
+            try {
+                await deleteObject(storageRef);
+            } catch (e) { console.warn("Storage delete failed", e); }
+            // Delete from Firestore
+            await deleteDoc(doc(db, "portfolio", itemId));
+        }
+
+        window.db = { loadPortfolioItems, addPortfolioItem, deletePortfolioItem, ADMIN_PASSWORD };
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #03030f;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, rgba(3,3,15,0.2) 0%, rgba(3,3,15,0.85) 100%);
+            z-index: 1;
+            pointer-events: none;
+        }
+        .content {
+            position: relative;
+            z-index: 2;
+        }
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 4rem;
+            backdrop-filter: blur(12px);
+            background: rgba(3, 3, 15, 0.5);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(122, 162, 247, 0.2);
+        }
+        .logo {
+            font-size: 1.6rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #fff, #7aa2f7, #bb9aff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+        .nav-links a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: 0.3s;
+        }
+        .nav-links a:hover {
+            color: #7aa2f7;
+        }
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 2rem;
+        }
+        .hero-title {
+            font-size: 5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #fff, #7aa2f7, #bb9aff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .hero-subtitle {
+            font-size: 1.2rem;
+            color: #b0b0d0;
+            max-width: 700px;
+            margin: 0 auto 2rem;
+        }
+        .cta-button {
+            display: inline-block;
+            padding: 0.9rem 2rem;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(122, 162, 247, 0.5);
+            border-radius: 50px;
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.4s;
+            backdrop-filter: blur(10px);
+        }
+        .cta-button:hover {
+            background: rgba(122, 162, 247, 0.2);
+            border-color: #7aa2f7;
+            transform: translateY(-3px);
+        }
+        section {
+            padding: 6rem 4rem;
+        }
+        .section-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+        .contact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .contact-card {
+            background: rgba(20, 20, 40, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            border: 1px solid rgba(122, 162, 247, 0.2);
+            transition: all 0.4s;
+            text-align: center;
+        }
+        .contact-card:hover {
+            transform: translateY(-8px);
+            border-color: rgba(122, 162, 247, 0.6);
+        }
+        .contact-card i {
+            font-size: 2.2rem;
+            color: #7aa2f7;
+            margin-bottom: 1rem;
+        }
+        .contact-card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+        }
+        .contact-card a, .contact-card span {
+            color: #b0b0d0;
+            text-decoration: none;
+            transition: 0.3s;
+        }
+        .contact-card a:hover {
+            color: #7aa2f7;
+        }
+        .social-row {
+            display: flex;
+            justify-content: center;
+            gap: 1.8rem;
+            flex-wrap: wrap;
+            margin-top: 4rem;
+        }
+        .social-icon-big {
+            width: 65px;
+            height: 65px;
+            background: rgba(30, 30, 60, 0.6);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            transition: all 0.4s;
+            border: 1px solid rgba(122, 162, 247, 0.3);
+            color: white;
+            text-decoration: none;
+        }
+        .social-icon-big:hover {
+            transform: translateY(-8px) scale(1.1);
+            background: #7aa2f7;
+            color: #03030f;
+        }
+        .portfolio-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .portfolio-item {
+            background: rgba(20, 20, 40, 0.5);
+            backdrop-filter: blur(8px);
+            border-radius: 1.5rem;
+            overflow: hidden;
+            transition: all 0.5s;
+            border: 1px solid rgba(122, 162, 247, 0.2);
+        }
+        .portfolio-item:hover {
+            transform: translateY(-12px);
+            border-color: #7aa2f7;
+        }
+        .media-container {
+            width: 100%;
+            height: 220px;
+            background: #00000060;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .media-container img, .media-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
+        .portfolio-item:hover .media-container img,
+        .portfolio-item:hover .media-container video {
+            transform: scale(1.03);
+        }
+        .card-info {
+            padding: 1.2rem;
+        }
+        .card-title {
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .category-badge {
+            font-size: 0.7rem;
+            background: #1e3a8a80;
+            padding: 0.2rem 0.8rem;
+            border-radius: 30px;
+            display: inline-block;
+        }
+        .delete-work {
+            background: rgba(220, 50, 70, 0.7);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .delete-work:hover {
+            background: #e63946;
+        }
+        .admin-panel {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+            flex-wrap: wrap;
+        }
+        .admin-btn {
+            background: rgba(20, 20, 40, 0.8);
+            border: 1px solid #7aa2f7;
+            padding: 0.8rem 1.8rem;
+            border-radius: 50px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .admin-btn:hover {
+            background: #7aa2f7;
+            color: #03030f;
+            transform: translateY(-3px);
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: blur(12px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background: #0a0a1f;
+            max-width: 500px;
+            width: 90%;
+            padding: 2rem;
+            border-radius: 2rem;
+            border: 1px solid #7aa2f7;
+        }
+        .modal-content h3 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+        }
+        .modal-content input, .modal-content select {
+            width: 100%;
+            padding: 12px;
+            margin: 12px 0;
+            background: #1f2a44;
+            border: 1px solid #5f7fbf;
+            border-radius: 30px;
+            color: white;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .modal-buttons button {
+            padding: 0.6rem 1.4rem;
+            border-radius: 30px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .submit-upload {
+            background: #2b5fcf;
+            color: white;
+        }
+        .close-modal {
+            background: #3a4466;
+            color: white;
+        }
+        footer {
+            text-align: center;
+            padding: 2rem;
+            opacity: 0.6;
+            font-size: 0.8rem;
+        }
+        @media (max-width: 768px) {
+            nav { padding: 1rem 2rem; }
+            .hero-title { font-size: 2.5rem; }
+            section { padding: 4rem 1.5rem; }
+            .section-title { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div class="overlay"></div>
+
+<div class="content">
+    <nav>
+        <div class="logo">Rafiul Rupam</div>
+        <div class="nav-links">
+            <a href="#home">Home</a>
+            <a href="#work">Work</a>
+            <a href="#contact">Contact</a>
+        </div>
+    </nav>
+
+    <section id="home" class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title"><span class="gradient-text">Motion Designer</span><br>& Video Editor</h1>
+            <p class="hero-subtitle">Crafting moving experiences with cinematic storytelling, dynamic motion graphics, and bold visual identities.</p>
+            <a href="#work" class="cta-button">Explore Work →</a>
+        </div>
+    </section>
+
+    <section id="work">
+        <h2 class="section-title">My Portfolio</h2>
+        <div class="admin-panel">
+            <button id="adminUploadBtn" class="admin-btn"><i class="fas fa-lock"></i> Admin Upload</button>
+        </div>
+        <div id="portfolioGrid" class="portfolio-grid">
+            <div style="text-align: center; padding: 3rem;">Loading portfolio...</div>
+        </div>
+    </section>
+
+    <section id="contact">
+        <h2 class="section-title">Let's Connect</h2>
+        <div class="contact-grid">
+            <div class="contact-card"><i class="fas fa-envelope"></i><h3>Email</h3><a href="mailto:rafiulislamrupom11@gmail.com">rafiulislamrupom11@gmail.com</a></div>
+            <div class="contact-card"><i class="fas fa-phone-alt"></i><h3>Phone</h3><span>01706618947</span></div>
+            <div class="contact-card"><i class="fab fa-facebook"></i><h3>Facebook Profile</h3><a href="https://www.facebook.com/profile.php?id=61574862845580" target="_blank">Visit Profile</a></div>
+            <div class="contact-card"><i class="fab fa-facebook"></i><h3>Facebook Page</h3><a href="https://www.facebook.com/profile.php?id=61574862845580" target="_blank">Rafiul Rupam Page</a></div>
+            <div class="contact-card"><i class="fab fa-tiktok"></i><h3>TikTok</h3><a href="https://www.tiktok.com/@itsmerupamhere" target="_blank">@itsmerupamhere</a></div>
+            <div class="contact-card"><i class="fab fa-linkedin"></i><h3>LinkedIn</h3><a href="https://www.linkedin.com/in/md-rafiul-islam-rupom-763594394/" target="_blank">Md Rafiul Islam Rupom</a></div>
+            <div class="contact-card"><i class="fab fa-twitter"></i><h3>X (Twitter)</h3><a href="https://x.com/rafiul_rup34054" target="_blank">@rafiul_rup34054</a></div>
+        </div>
+        <div class="social-row">
+            <a href="https://www.facebook.com/profile.php?id=61574862845580" class="social-icon-big" target="_blank"><i class="fab fa-facebook-f"></i></a>
+            <a href="https://www.tiktok.com/@itsmerupamhere" class="social-icon-big" target="_blank"><i class="fab fa-tiktok"></i></a>
+            <a href="https://www.linkedin.com/in/md-rafiul-islam-rupom-763594394/" class="social-icon-big" target="_blank"><i class="fab fa-linkedin-in"></i></a>
+            <a href="https://x.com/rafiul_rup34054" class="social-icon-big" target="_blank"><i class="fab fa-twitter"></i></a>
+        </div>
+    </section>
+
+    <footer><p>© 2025 Rafiul Rupam — Motion Designer & Video Editor</p></footer>
+</div>
+
+<!-- Modals -->
+<div id="passwordModal" class="modal">
+    <div class="modal-content">
+        <h3><i class="fas fa-key"></i> Admin Verification</h3>
+        <p>Enter password to upload new work:</p>
+        <input type="password" id="adminPassword" placeholder="Password">
+        <div class="modal-buttons">
+            <button class="close-modal" id="closePwdBtn">Cancel</button>
+            <button id="verifyPwdBtn" class="submit-upload">Verify</button>
+        </div>
+    </div>
+</div>
+
+<div id="uploadModal" class="modal">
+    <div class="modal-content">
+        <h3><i class="fas fa-upload"></i> Upload New Work</h3>
+        <input type="text" id="workTitle" placeholder="Title">
+        <select id="workCategory">
+            <option value="Motion Graphics">🎞️ Motion Graphics</option>
+            <option value="Video Editing">✂️ Video Editing</option>
+            <option value="Thumbnail Design">🖼️ Thumbnail Design</option>
+            <option value="Logo Design">🏷️ Logo Design</option>
+            <option value="Social Media Post">📱 Social Media Post</option>
+        </select>
+        <input type="file" id="workFile" accept="image/*,video/*">
+        <small>Max 12MB</small>
+        <div class="modal-buttons">
+            <button class="close-modal" id="closeUploadBtn">Cancel</button>
+            <button id="confirmUploadBtn" class="submit-upload">Upload</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+    // 3D background (same as before)
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = null;
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 2, 12);
+    const renderer = new THREE.WebGLRenderer({ alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    const ambient = new THREE.AmbientLight(0x404060);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(2, 5, 3);
+    scene.add(dirLight);
+    const backLight = new THREE.PointLight(0x3366ff, 0.5);
+    backLight.position.set(-2, 1, -5);
+    scene.add(backLight);
+
+    const knotGeo = new THREE.TorusKnotGeometry(1.3, 0.4, 200, 24, 3, 4);
+    const knotMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x1a3c8a, roughness: 0.3, metalness: 0.7 });
+    const knot = new THREE.Mesh(knotGeo, knotMat);
+    scene.add(knot);
+
+    const particleCount = 1500;
+    const particlesGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i++) {
+        positions[i*3] = (Math.random() - 0.5) * 50;
+        positions[i*3+1] = (Math.random() - 0.5) * 25;
+        positions[i*3+2] = (Math.random() - 0.5) * 25 - 15;
+    }
+    particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particleMat = new THREE.PointsMaterial({ color: 0x88aaff, size: 0.07, transparent: true, opacity: 0.5 });
+    const particles = new THREE.Points(particlesGeo, particleMat);
+    scene.add(particles);
+
+    const orbGroup = new THREE.Group();
+    const orbCount = 8;
+    const orbs = [];
+    for (let i = 0; i < orbCount; i++) {
+        const orbGeo = new THREE.SphereGeometry(0.12, 16, 16);
+        const orbMat = new THREE.MeshStandardMaterial({ color: 0x6d8eff, emissive: 0x2244aa });
+        const sphere = new THREE.Mesh(orbGeo, orbMat);
+        orbGroup.add(sphere);
+        orbs.push(sphere);
+    }
+    scene.add(orbGroup);
+
+    function animate3D() {
+        requestAnimationFrame(animate3D);
+        knot.rotation.x += 0.005;
+        knot.rotation.y += 0.008;
+        knot.rotation.z += 0.003;
+        particles.rotation.y += 0.0005;
+        particles.rotation.x += 0.0003;
+
+        orbs.forEach((sphere, idx) => {
+            const time = Date.now() * 0.0015;
+            const radius = 2.4;
+            const angle = (idx / orbCount) * Math.PI * 2 + time;
+            sphere.position.x = Math.cos(angle) * radius;
+            sphere.position.z = Math.sin(angle) * radius;
+            sphere.position.y = Math.sin(time + idx) * 0.8;
+        });
+        orbGroup.rotation.y += 0.003;
+
+        camera.position.x += (0 - camera.position.x) * 0.03;
+        camera.position.y += (1 - camera.position.y) * 0.03;
+        camera.lookAt(0, 0.5, 0);
+        renderer.render(scene, camera);
+    }
+    animate3D();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // --- Firebase integration (imported from the top-level script) ---
+    // We'll use the functions exposed on window.db
+    let currentItems = [];
+
+    async function refreshPortfolio() {
+        const grid = document.getElementById('portfolioGrid');
+        grid.innerHTML = '<div style="text-align: center; padding: 3rem;">Loading portfolio...</div>';
+        try {
+            const items = await window.db.loadPortfolioItems();
+            currentItems = items;
+            if (items.length === 0) {
+                grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:3rem;">No works uploaded yet. Use admin panel to add your projects.</div>';
+                return;
+            }
+            grid.innerHTML = items.map(item => `
+                <div class="portfolio-item" data-id="${item.id}">
+                    <div class="media-container">
+                        ${item.type === 'image' ? `<img src="${item.src}" alt="${escapeHtml(item.title)}">` : `<video src="${item.src}" controls preload="metadata" style="width:100%; height:100%; object-fit:cover;"></video>`}
+                    </div>
+                    <div class="card-info">
+                        <div class="card-title">
+                            <span>${escapeHtml(item.title)}</span>
+                            <button class="delete-work" data-id="${item.id}" data-src="${item.src}"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                        <div><span class="category-badge"><i class="fas fa-tag"></i> ${item.category}</span></div>
+                    </div>
+                </div>
+            `).join('');
+
+            // Attach delete handlers (only if admin authenticated later)
+            document.querySelectorAll('.delete-work').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const id = btn.getAttribute('data-id');
+                    const src = btn.getAttribute('data-src');
+                    if (!isAdmin) {
+                        alert('Admin password required to delete.');
+                        return;
+                    }
+                    if (confirm('Delete this item?')) {
+                        try {
+                            await window.db.deletePortfolioItem(id, src);
+                            await refreshPortfolio();
+                        } catch (err) {
+                            alert('Delete failed: ' + err.message);
+                        }
+                    }
+                });
+            });
+        } catch (err) {
+            grid.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:red;">Error loading portfolio: ${err.message}</div>`;
+        }
+    }
+
+    function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
+    let isAdmin = false;
+
+    // Password modal handling
+    const pwdModal = document.getElementById('passwordModal');
+    const uploadModal = document.getElementById('uploadModal');
+    const adminBtn = document.getElementById('adminUploadBtn');
+    const closePwd = document.getElementById('closePwdBtn');
+    const verifyBtn = document.getElementById('verifyPwdBtn');
+    const pwdInput = document.getElementById('adminPassword');
+    const closeUpload = document.getElementById('closeUploadBtn');
+    const confirmUpload = document.getElementById('confirmUploadBtn');
+    const workTitle = document.getElementById('workTitle');
+    const workCategory = document.getElementById('workCategory');
+    const workFile = document.getElementById('workFile');
+
+    function openPasswordModal() { pwdModal.style.display = 'flex'; pwdInput.value = ''; }
+    function closePasswordModal() { pwdModal.style.display = 'none'; }
+    function openUploadModal() { uploadModal.style.display = 'flex'; }
+    function closeUploadModal() { uploadModal.style.display = 'none'; workFile.value = ''; workTitle.value = ''; }
+
+    adminBtn.addEventListener('click', () => {
+        if (isAdmin) {
+            openUploadModal();
+        } else {
+            openPasswordModal();
+        }
+    });
+
+    verifyBtn.addEventListener('click', () => {
+        if (pwdInput.value === window.db.ADMIN_PASSWORD) {
+            isAdmin = true;
+            closePasswordModal();
+            openUploadModal();
+        } else {
+            alert('Incorrect password!');
+        }
+    });
+
+    closePwd.addEventListener('click', closePasswordModal);
+    closeUpload.addEventListener('click', closeUploadModal);
+
+    confirmUpload.addEventListener('click', async () => {
+        const title = workTitle.value;
+        const category = workCategory.value;
+        const file = workFile.files[0];
+        if (!file) { alert('Please select a file.'); return; }
+        try {
+            await window.db.addPortfolioItem(file, title, category);
+            await refreshPortfolio();
+            closeUploadModal();
+            alert('Upload successful!');
+        } catch (err) {
+            alert('Upload failed: ' + err.message);
+        }
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target === pwdModal) closePasswordModal();
+        if (e.target === uploadModal) closeUploadModal();
+    });
+
+    // GSAP animations
+    gsap.registerPlugin(ScrollTrigger);
+    gsap.from(".hero-title", { duration: 1, y: 100, opacity: 0, ease: "power3.out" });
+    gsap.from(".hero-subtitle", { duration: 1, y: 50, opacity: 0, delay: 0.3 });
+    gsap.from(".cta-button", { duration: 0.8, scale: 0.9, opacity: 0, delay: 0.6 });
+    gsap.utils.toArray(".contact-card").forEach(card => {
+        gsap.from(card, {
+            scrollTrigger: { trigger: card, start: "top 85%" },
+            y: 50, opacity: 0, duration: 0.6, stagger: 0.1
+        });
+    });
+
+    // Initial load
+    refreshPortfolio();
+</script>
+</body>
+</html>
